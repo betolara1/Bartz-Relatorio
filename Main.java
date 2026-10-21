@@ -171,9 +171,14 @@ public class Main{
 
                     String codigoXML =  elemento.getAttribute("REFERENCIA").trim().toUpperCase(); // cria uma string chamada referencia e pega o atributo REFERENCIA do item
 
+                    String grupo = null;
                     if(codigosExcel.containsKey(codigoXML)){ // se o codigoXML existir no excel
-                        String grupo = codigosExcel.get(codigoXML);
-                        
+                        grupo = codigosExcel.get(codigoXML);
+                    } else if(codigoXML.startsWith("ES")){ // especiais que não estão no excel (ES, ES01, ES02, ES08, etc.)
+                        grupo = "ESPECIAIS";
+                    }
+
+                    if(grupo != null){
                         double precoItem = 0.0;
                         String precoStr = elemento.getAttribute("PRECO_TOTAL").trim().replace(",", ".");
                         if(!precoStr.isEmpty()){

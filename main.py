@@ -75,6 +75,21 @@ def main():
                 contagem[xf][m['item']] += qtd
                 total_por_xml[xf] += qtd
 
+        # Identifica códigos especiais ES (ex: ES01, ES02, ES08, ES) que não estejam na planilha
+        es_encontrados = set(re.findall(r'(?<![A-Z0-9])(ES\d+|ES)(?![A-Z0-9])', conteudo))
+        for es_item in es_encontrados:
+            if not any(m['item'].upper() == es_item for m in modelos):
+                modelos.append({
+                    'item': es_item,
+                    'desc': f'ESPECIAL {es_item}',
+                    'cat': 'ESPECIAIS',
+                })
+                padrao = r'(?<![A-Z0-9])' + re.escape(es_item) + r'(?![A-Z0-9])'
+                qtd = len(re.findall(padrao, conteudo))
+                if qtd:
+                    contagem[xf][es_item] += qtd
+                    total_por_xml[xf] += qtd
+
     # somente os codigos que realmente apareceram em pelo menos um XML
     modelos_encontrados = [
         m for m in modelos
