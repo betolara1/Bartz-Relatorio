@@ -56,7 +56,35 @@ public class ExportadorExcel {
 
 
 
-    public static void exportar(Map<String, Map<String, Integer>> dadosPorArquivo, String caminho){
+    public static class DadosGrupo {
+        private int quantidade;
+        private double valorTotal;
+
+        public DadosGrupo() {
+            this.quantidade = 0;
+            this.valorTotal = 0.0;
+        }
+
+        public DadosGrupo(int quantidade, double valorTotal) {
+            this.quantidade = quantidade;
+            this.valorTotal = valorTotal;
+        }
+
+        public void adicionar(int qtd, double valor) {
+            this.quantidade += qtd;
+            this.valorTotal += valor;
+        }
+
+        public int getQuantidade() {
+            return quantidade;
+        }
+
+        public double getValorTotal() {
+            return valorTotal;
+        }
+    }
+
+    public static boolean exportar(Map<String, Map<String, DadosGrupo>> dadosPorArquivo, String caminho){
 
         File arquivo = new File(caminho);
         Workbook workbook = null;
@@ -74,6 +102,18 @@ public class ExportadorExcel {
                 }
 
                 aba = workbook.getSheetAt(0); // pega a primeira aba
+
+                // Atualiza o cabeçalho se a coluna de valor ainda não existir
+                Row cabecalhoExistente = aba.getRow(0);
+                if (cabecalhoExistente != null && cabecalhoExistente.getCell(3) == null) {
+                    Cell celulaValor = cabecalhoExistente.createCell(3);
+                    celulaValor.setCellValue("Valor Total");
+                    CellStyle estiloCabecalho = workbook.createCellStyle();
+                    Font fonte = workbook.createFont();
+                    fonte.setBold(true);
+                    estiloCabecalho.setFont(fonte);
+                    celulaValor.setCellStyle(estiloCabecalho);
+                }
             } 
             else {
 
@@ -84,15 +124,17 @@ public class ExportadorExcel {
 
 
                 /* Cria as celulas do cabecalho*/
-                Cell CabecalhoPedido = cabecalho.createCell(0);
+                Cell cabecalhoPedido = cabecalho.createCell(0);
                 Cell cabecalhoGrupo = cabecalho.createCell(1);
                 Cell cabecalhoQuantidade = cabecalho.createCell(2);
+                Cell cabecalhoValor = cabecalho.createCell(3);
 
 
                 /* Coloca valores no cabecalho*/
-                CabecalhoPedido.setCellValue("Pedido");
+                cabecalhoPedido.setCellValue("Pedido");
                 cabecalhoGrupo.setCellValue("Grupo");
                 cabecalhoQuantidade.setCellValue("Quantidade");
+                cabecalhoValor.setCellValue("Valor Total");
 
 
                 /* deixa o cabeçalho em negrito*/
@@ -100,30 +142,40 @@ public class ExportadorExcel {
                 Font fonte = workbook.createFont(); // cria a fonte
                 fonte.setBold(true); // define a fonte como negrito
                 estiloCabecalho.setFont(fonte); // aplica a fonte no estilo do cabecalho
+                cabecalhoPedido.setCellStyle(estiloCabecalho);
                 cabecalhoGrupo.setCellStyle(estiloCabecalho); // aplica o estilo do cabecalho na coluna grupo
                 cabecalhoQuantidade.setCellStyle(estiloCabecalho); // aplica o estilo do cabecalho na coluna quantidade
-            
+                cabecalhoValor.setCellStyle(estiloCabecalho);
             }
 
+            // Estilo numérico/moeda para o valor total
+            CellStyle estiloMoeda = workbook.createCellStyle();
+            estiloMoeda.setDataFormat(workbook.createDataFormat().getFormat("R$ #,##0.00"));
 
             /* Coloca os valores na planilha */
             int numeroLinha = arquivoExiste ? aba.getLastRowNum() + 1 : 1; // se ja existe, continua na proxima linha
             int totalLinha = 0;
 
-            for (Map.Entry<String, Map<String, Integer>> arquivoEntry : dadosPorArquivo.entrySet()){ 
+            for (Map.Entry<String, Map<String, DadosGrupo>> arquivoEntry : dadosPorArquivo.entrySet()){ 
 
                 String nomeArquivo = arquivoEntry.getKey(); // recebe o nome do arquivo
-                String nomePedido = nomeArquivo.substring(0, 5);
+                String nomePedido = nomeArquivo.length() >= 5 ? nomeArquivo.substring(0, 5) : nomeArquivo;
 
-                Map<String, Integer> grupos = arquivoEntry.getValue(); // recebe os grupos do arquivo e quantidade
+                Map<String, DadosGrupo> grupos = arquivoEntry.getValue(); // recebe os grupos do arquivo, quantidade e valor
 
                 // Percorre cada grupo do arquivo atual
-                for (Map.Entry<String, Integer> grupoEntry : grupos.entrySet()){
+                for (Map.Entry<String, DadosGrupo> grupoEntry : grupos.entrySet()){
                     Row linha = aba.createRow(numeroLinha++); // cria uma nova linha
+                    DadosGrupo dadosGrupo = grupoEntry.getValue();
                     
-                    linha.createCell(0).setCellValue(nomePedido); // recebe do map o primeiro valor (nome do arquivo)
-                    linha.createCell(1).setCellValue(grupoEntry.getKey()); // recebe do map o segundo valor (nome do grupo)
-                    linha.createCell(2).setCellValue(grupoEntry.getValue()); // recebe do map o terceiro valor (quantidade de itens do grupo)
+                    linha.createCell(0).setCellValue(nomePedido); // Pedido
+                    linha.createCell(1).setCellValue(grupoEntry.getKey()); // Grupo
+                    linha.createCell(2).setCellValue(dadosGrupo.getQuantidade()); // Quantidade
+                    
+                    Cell celulaValor = linha.createCell(3);
+                    celulaValor.setCellValue(dadosGrupo.getValorTotal()); // Valor Total
+                    celulaValor.setCellStyle(estiloMoeda);
+
                     totalLinha++;
                 }
             }
@@ -131,26 +183,31 @@ public class ExportadorExcel {
             aba.autoSizeColumn(0); // ajusta a largura automaticamente da coluna 0
             aba.autoSizeColumn(1); // ajusta a largura automaticamente da coluna 1
             aba.autoSizeColumn(2); // ajusta a largura automaticamente da coluna 2
+            aba.autoSizeColumn(3); // ajusta a largura automaticamente da coluna 3
 
 
             /* cria o arquivo e escreve o workbook no arquivo */
             try(FileOutputStream file = new FileOutputStream(caminho)){ // cria o arquivo
                 workbook.write(file); // escreve no arquivo
                 System.out.println("Excel gerado com sucesso em: " + caminho); 
+                return true;
             }
         }
 
         catch(Exception e){
             System.err.println("Erro ao exportar para Excel: " + e.getMessage());
+            return false;
         }
         
         /* Usamos o finally para garantir que o arquivo seja fechado, mesmo se ocorrer um erro */
         finally{
-            try{
-                workbook.close();
-            }
-            catch(Exception e){
-                System.err.println("Erro ao fechar o workbook: " + e.getMessage());
+            if(workbook != null){
+                try{
+                    workbook.close();
+                }
+                catch(Exception e){
+                    System.err.println("Erro ao fechar o workbook: " + e.getMessage());
+                }
             }
         }
 

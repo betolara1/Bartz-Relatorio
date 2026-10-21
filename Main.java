@@ -28,7 +28,7 @@ import org.w3c.dom.NodeList;
 public class Main{
     private static String caminho_pasta = "\\\\192.168.1.10\\DatabaseFolder\\01_XML\\IMPORTADOS";
     private static String caminho_arquivo = "RELACAO-MODELOS.xlsx";
-    private static String caminho_saida = "\\\\192.168.1.10\\DatabaseFolder\\relatorio_atualizado.xlsx";
+    private static String caminho_saida = "\\\\192.168.1.10\\DatabaseFolder\\relatorio_atualizado_1.xlsx";
     
     public static void main(String[] args) throws Exception {
 
@@ -55,7 +55,7 @@ public class Main{
         File[] arquivosExistentes = pasta.listFiles((dir, nome) -> nome.toLowerCase().endsWith(".xml"));
         if(arquivosExistentes != null && arquivosExistentes.length > 0){
             System.out.println("Verificando " + arquivosExistentes.length + " arquivos XML existentes na pasta...");
-            Map<String, Map<String, Integer>> dadosIniciais = new HashMap<>();
+            Map<String, Map<String, ExportadorExcel.DadosGrupo>> dadosIniciais = new HashMap<>();
 
             for(File arq : arquivosExistentes){
                 String nomeArquivo = arq.getName();
@@ -65,17 +65,21 @@ public class Main{
                     continue;
                 }
 
-                Map<String, Integer> contagem = compararCodigos(arq, builder, codigosExcel);
+                Map<String, ExportadorExcel.DadosGrupo> contagem = compararCodigos(arq, builder, codigosExcel);
                 if(!contagem.isEmpty()){
                     dadosIniciais.put(pedido, contagem);
-                    pedidosExistentes.add(pedido);
                 }
             }
 
             if(!dadosIniciais.isEmpty()){
                 System.out.println("Exportando " + dadosIniciais.size() + " pedidos encontrados para o Excel...");
-                ExportadorExcel.exportar(dadosIniciais, caminho_saida);
-                System.out.println("Relatorio inicial gerado/atualizado com sucesso!\n");
+                boolean sucesso = ExportadorExcel.exportar(dadosIniciais, caminho_saida);
+                if(sucesso){
+                    pedidosExistentes.addAll(dadosIniciais.keySet());
+                    System.out.println("Relatorio inicial gerado/atualizado com sucesso!\n");
+                } else {
+                    System.err.println("Atenção: Não foi possível salvar no Excel (arquivo aberto ou bloqueado). Os pedidos serão reprocessados na próxima execução.\n");
+                }
             } else {
                 System.out.println("Todos os arquivos existentes já estavam no relatório.\n");
             }
@@ -89,7 +93,7 @@ public class Main{
 
         while(true){
             WatchKey key = watchService.take(); // faz com que o programa fique dormindo até entrar um novo arquivo
-            Map<String, Map<String, Integer>> dadosNovos = new HashMap<>(); 
+            Map<String, Map<String, ExportadorExcel.DadosGrupo>> dadosNovos = new HashMap<>(); 
 
             /* serve para ignorar eventos de erro/overflow*/
             for(WatchEvent<?> event : key.pollEvents()){
@@ -118,11 +122,10 @@ public class Main{
 
                     if(arquivoCompleto.exists() && arquivoCompleto.isFile()){
                         System.out.println("Processando novo arquivo detectado: " + nomeArquivo);
-                        Map<String, Integer> contagem = compararCodigos(arquivoCompleto, builder, codigosExcel);
+                        Map<String, ExportadorExcel.DadosGrupo> contagem = compararCodigos(arquivoCompleto, builder, codigosExcel);
                         
                         if(!contagem.isEmpty()){
                             dadosNovos.put(pedido, contagem);
-                            pedidosExistentes.add(pedido);
                         }
                     }
                 }
@@ -130,8 +133,13 @@ public class Main{
 
             /* Salva no Excel apenas o(s) novo(s) arquivo(s) */
             if(!dadosNovos.isEmpty()){
-                ExportadorExcel.exportar(dadosNovos, caminho_saida);
-                System.out.println("Excel atualizado com sucesso!\n");
+                boolean sucesso = ExportadorExcel.exportar(dadosNovos, caminho_saida);
+                if(sucesso){
+                    pedidosExistentes.addAll(dadosNovos.keySet());
+                    System.out.println("Excel atualizado com sucesso!\n");
+                } else {
+                    System.err.println("Atenção: Não foi possível atualizar o Excel no momento (arquivo aberto por outro processo).\n");
+                }
             }
 
             /* Reseta a chave para ficar pronto para o próximo evento*/
@@ -144,10 +152,10 @@ public class Main{
         }
     }
 
-    // Função que compara os códigos do xml com os do excel
-    private static Map<String, Integer> compararCodigos(File xml, DocumentBuilder builder, Map<String, String> codigosExcel){
+    // Função que compara os códigos do xml com os do excel e acumula quantidade e valor total
+    private static Map<String, ExportadorExcel.DadosGrupo> compararCodigos(File xml, DocumentBuilder builder, Map<String, String> codigosExcel){
 
-        Map<String, Integer> quantidadePorGrupo = new HashMap<>();
+        Map<String, ExportadorExcel.DadosGrupo> dadosPorGrupo = new HashMap<>();
 
         try{
             Document doc = builder.parse(xml); // cria o documento e parseia o xml
@@ -166,14 +174,25 @@ public class Main{
                     if(codigosExcel.containsKey(codigoXML)){ // se o codigoXML existir no excel
                         String grupo = codigosExcel.get(codigoXML);
                         
-                        quantidadePorGrupo.put(grupo, quantidadePorGrupo.getOrDefault(grupo, 0) + 1); // Incrementa a contagem do grupo
+                        double precoItem = 0.0;
+                        String precoStr = elemento.getAttribute("PRECO_TOTAL").trim().replace(",", ".");
+                        if(!precoStr.isEmpty()){
+                            try {
+                                precoItem = Double.parseDouble(precoStr);
+                            } catch(NumberFormatException e){
+                                precoItem = 0.0;
+                            }
+                        }
+
+                        dadosPorGrupo.computeIfAbsent(grupo, k -> new ExportadorExcel.DadosGrupo()).adicionar(1, precoItem);
                     }
                 }
             }
 
-            // percorre a lista de grupos e imprime a contagem
-            for(Map.Entry<String, Integer> contagem : quantidadePorGrupo.entrySet()){ // percorre a lista de grupos e imprime a contagem
-                System.out.println("O grupo " + contagem.getKey() + " tem " + contagem.getValue() + " item(ns)."); // key e o grupo, value e a quantidade de itens do grupo
+            // percorre a lista de grupos e imprime a contagem e valor total
+            for(Map.Entry<String, ExportadorExcel.DadosGrupo> entrada : dadosPorGrupo.entrySet()){
+                System.out.printf("O grupo %s tem %d item(ns) - Total: R$ %.2f%n", 
+                    entrada.getKey(), entrada.getValue().getQuantidade(), entrada.getValue().getValorTotal());
             }
             
         }
@@ -182,7 +201,7 @@ public class Main{
             System.err.println("Erro ao processar o XML " + xml.getName() + ": " + e.getMessage());
         }
 
-        return quantidadePorGrupo;
+        return dadosPorGrupo;
     }
 
 

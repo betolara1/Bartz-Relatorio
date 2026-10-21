@@ -66,7 +66,7 @@ java -cp "libs/*;." Main
 ```
 
 #### Execução com Reinício Automático (Loop)
-Execute o arquivo:
+Execute o arquivo:'
 ```cmd
 executar_loop.bat
 ```
